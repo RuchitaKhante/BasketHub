@@ -1,5 +1,5 @@
-// Checkout for BasketHub: delivery details + Cash on Delivery or online payment (Razorpay).
-// It replaces the old checkoutNotice() message from cart.js.
+// Checkout for BasketHub: delivery details + Cash on Delivery or a DEMO UPI payment.
+// The UPI option is a simulation: no real money moves. It replaces the old checkoutNotice() from cart.js.
 (function () {
   const css = document.createElement('style');
   css.textContent = `
@@ -14,19 +14,10 @@
     .co-actions button{flex:1;border:0;border-radius:10px;padding:11px;font-weight:700;cursor:pointer}
     .co-go{background:#111;color:#fff}.co-cancel{background:#eee}
     .co-err{color:#b3261e;font-size:13px;margin-top:8px;min-height:16px}
+    .co-demo{background:#fff7e0;border:1px solid #f0d58a;border-radius:10px;padding:10px;font-size:13px;margin-top:10px}
+    .co-amount{font-size:26px;font-weight:800;margin:8px 0}
   `;
   document.head.appendChild(css);
-
-  function loadRazorpay() {
-    return new Promise((resolve, reject) => {
-      if (window.Razorpay) return resolve();
-      const s = document.createElement('script');
-      s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('Could not load the payment window'));
-      document.head.appendChild(s);
-    });
-  }
 
   let overlay = null;
   function closeBox() { if (overlay) { overlay.remove(); overlay = null; } }
@@ -43,57 +34,43 @@
     return d.error || Object.values(d).join(' ') || 'Something went wrong. Please try again.';
   }
 
-  async function submit(details, method, errEl, goBtn) {
-    goBtn.disabled = true;
+  async function sendOrder(url, payload, errEl, btn) {
+    btn.disabled = true;
     errEl.textContent = '';
     try {
-      if (method === 'cod') {
-        const res = await authFetch('/api/orders/cod', { method: 'POST', body: JSON.stringify(details) });
-        if (!res) return;
-        if (!res.ok) { errEl.textContent = await errorText(res); return; }
-        done(await res.json());
-        return;
-      }
-
-      // online payment
-      const start = await authFetch('/api/orders/online/start', { method: 'POST', body: JSON.stringify(details) });
-      if (!start) return;
-      if (!start.ok) { errEl.textContent = await errorText(start); return; }
-      const s = await start.json();
-      await loadRazorpay();
-
-      const rzp = new window.Razorpay({
-        key: s.keyId,
-        amount: s.amountPaise,
-        currency: s.currency,
-        name: 'BasketHub',
-        description: 'Order payment',
-        order_id: s.razorpayOrderId,
-        prefill: { name: details.name, contact: details.phone },
-        handler: async function (response) {
-          const v = await authFetch('/api/orders/online/verify', {
-            method: 'POST',
-            body: JSON.stringify({
-              orderId: s.orderId,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature
-            })
-          });
-          if (!v) return;
-          if (v.ok) done(await v.json());
-          else alert(await errorText(v));
-        }
-      });
-      rzp.on('payment.failed', function (r) {
-        alert('Payment failed: ' + ((r.error && r.error.description) || 'please try again.'));
-      });
-      rzp.open();
+      const res = await authFetch(url, { method: 'POST', body: JSON.stringify(payload) });
+      if (!res) return;
+      if (!res.ok) { errEl.textContent = await errorText(res); return; }
+      done(await res.json());
     } catch (e) {
       errEl.textContent = e.message || 'Something went wrong. Please try again.';
     } finally {
-      goBtn.disabled = false;
+      btn.disabled = false;
     }
+  }
+
+  async function showApproval(details, upiId) {
+    let total = '';
+    try {
+      const r = await authFetch('/api/cart');
+      if (r && r.ok) { const c = await r.json(); total = '₹' + Number(c.total).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
+    } catch (_) {}
+
+    overlay.querySelector('.co-box').innerHTML = `
+      <h3>Approve UPI payment</h3>
+      <div>Payment request to <b>${upiId.replace(/[<>&"']/g, '')}</b></div>
+      <div class="co-amount">${total}</div>
+      <div class="co-demo">Demo payment: this only simulates UPI. No real money is charged.</div>
+      <div class="co-err" id="coErr2"></div>
+      <div class="co-actions">
+        <button type="button" class="co-cancel" id="coDecline">Decline</button>
+        <button type="button" class="co-go" id="coApprove">Approve (demo)</button>
+      </div>`;
+    const errEl = overlay.querySelector('#coErr2');
+    overlay.querySelector('#coDecline').addEventListener('click', closeBox);
+    const approve = overlay.querySelector('#coApprove');
+    approve.addEventListener('click', () =>
+      sendOrder('/api/orders/upi-demo', Object.assign({}, details, { upiId }), errEl, approve));
   }
 
   window.checkoutNotice = function () {
@@ -111,11 +88,14 @@
         <label for="coAddr">Delivery address</label><textarea id="coAddr" rows="3" maxlength="300"></textarea>
         <label>Payment method</label>
         <label class="co-pay"><input type="radio" name="coPay" value="cod" checked>Cash on Delivery</label>
-        <label class="co-pay"><input type="radio" name="coPay" value="online">Pay online (UPI / card)</label>
+        <label class="co-pay"><input type="radio" name="coPay" value="upi">UPI (demo, no real money)</label>
+        <div id="coUpiBox" style="display:none">
+          <label for="coUpi">UPI ID</label><input id="coUpi" type="text" maxlength="80" placeholder="name@upi">
+        </div>
         <div class="co-err" id="coErr"></div>
         <div class="co-actions">
           <button type="button" class="co-cancel" id="coCancel">Cancel</button>
-          <button type="button" class="co-go" id="coGo">Place order</button>
+          <button type="button" class="co-go" id="coGo">Continue</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -124,6 +104,14 @@
     if (user && user.name) nameEl.value = user.name;
     const errEl = overlay.querySelector('#coErr');
     const goBtn = overlay.querySelector('#coGo');
+    const upiBox = overlay.querySelector('#coUpiBox');
+
+    overlay.querySelectorAll('input[name=coPay]').forEach(r => r.addEventListener('change', () => {
+      const m = overlay.querySelector('input[name=coPay]:checked').value;
+      upiBox.style.display = m === 'upi' ? 'block' : 'none';
+      goBtn.textContent = m === 'upi' ? 'Continue' : 'Place order';
+    }));
+    goBtn.textContent = 'Place order';
 
     overlay.querySelector('#coCancel').addEventListener('click', closeBox);
     goBtn.addEventListener('click', () => {
@@ -137,7 +125,16 @@
         return;
       }
       const method = overlay.querySelector('input[name=coPay]:checked').value;
-      submit(details, method, errEl, goBtn);
+      if (method === 'cod') {
+        sendOrder('/api/orders/cod', details, errEl, goBtn);
+        return;
+      }
+      const upiId = overlay.querySelector('#coUpi').value.trim();
+      if (!/^[a-zA-Z0-9._-]{2,64}@[a-zA-Z0-9]{2,32}$/.test(upiId)) {
+        errEl.textContent = 'Please enter a valid UPI ID, for example name@upi';
+        return;
+      }
+      showApproval(details, upiId);
     });
   };
 })();

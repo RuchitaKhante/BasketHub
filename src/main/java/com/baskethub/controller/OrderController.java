@@ -23,6 +23,11 @@ public class OrderController {
         return service.placeCashOnDelivery(auth.getName(), req);
     }
 
+    @PostMapping("/upi-demo")
+    public OrderResponse placeDemoUpi(Authentication auth, @Valid @RequestBody DemoUpiRequest req) {
+        return service.placeDemoUpi(auth.getName(), req);
+    }
+
     @PostMapping("/online/start")
     public RazorpayStartResponse startOnline(Authentication auth, @Valid @RequestBody CheckoutRequest req) {
         return service.startOnlinePayment(auth.getName(), req);

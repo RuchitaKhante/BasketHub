@@ -72,6 +72,17 @@ public class OrderService {
         return toResponse(order);
     }
 
+    // ---------- UPI payment (DEMO: simulated, no real money moves) ----------
+    @Transactional
+    public OrderResponse placeDemoUpi(String email, DemoUpiRequest req) {
+        User user = getUser(email);
+        CheckoutRequest details = new CheckoutRequest(req.name(), req.phone(), req.address());
+        Order order = buildOrderFromCart(user, details, "UPI_DEMO", "PAID_DEMO");
+        orderRepo.save(order);
+        finishOrder(user, order);
+        return toResponse(order);
+    }
+
     // ---------- Online payment (Razorpay) step 1: create the payment ----------
     @Transactional
     public RazorpayStartResponse startOnlinePayment(String email, CheckoutRequest req) {
