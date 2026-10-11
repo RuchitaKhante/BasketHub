@@ -26,6 +26,19 @@ function renderAuthLinks() {
   const authLinks = document.getElementById('authLinks'); if (!authLinks) return;
   let user = null;
   try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch (_) { user = null; }
+  
+  // Show Admin tab only for users whose stored role is ADMIN
+  const adminTab = document.getElementById('adminTab');
+
+  if (adminTab) {
+      const isAdmin =
+          user &&
+          localStorage.getItem('token') &&
+          String(user.role || '').toUpperCase() === 'ADMIN';
+
+      adminTab.style.display = isAdmin ? 'inline-block' : 'none';
+  }
+  
   if (user && localStorage.getItem('token')) {
     const safeName = String(user.name || 'Shopper').replace(/[<>"'&]/g, '');
     authLinks.innerHTML = `<a href="cart.html" class="header-pill">♡ Basket (<span id="cartCount">0</span>)</a><span class="welcome-user">Hi, ${safeName}</span><a href="#" id="logoutLink">Log out</a>`;
